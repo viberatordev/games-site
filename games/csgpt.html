@@ -1,0 +1,2371 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CS (HTML) — прототип v0.15 (full)</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #0b0f14; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    canvas { display: block; width: 100vw; height: 100vh; image-rendering: crisp-edges; }
+
+    .hud {
+      position: fixed; left: 12px; top: 10px; color: #d7e3f0; font-size: 14px; line-height: 1.2;
+      user-select: none; pointer-events: none; text-shadow: 0 1px 0 rgba(0,0,0,.4);
+    }
+    .hud .row { margin-bottom: 6px; }
+
+    .hint {
+      position: fixed; left: 12px; bottom: 10px; color: rgba(215,227,240,.85); font-size: 13px;
+      user-select: none; pointer-events: none; max-width: 1120px;
+    }
+
+    .banner {
+      position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+      color: #eaf2ff; font-size: 44px; font-weight: 700; letter-spacing: 1px;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,.35), rgba(0,0,0,.85));
+      user-select: none; pointer-events: none;
+    }
+    .banner small { display: block; margin-top: 10px; font-size: 14px; opacity: .85; font-weight: 500; letter-spacing: 0; text-align: center; }
+
+    .buy {
+      position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+      background: rgba(0,0,0,.55);
+      user-select: none;
+    }
+    .buy .panel {
+      width: min(620px, calc(100vw - 28px));
+      background: rgba(12, 16, 22, 0.92);
+      border: 1px solid rgba(255,255,255,0.12);
+      box-shadow: 0 12px 60px rgba(0,0,0,0.45);
+      border-radius: 12px;
+      padding: 14px 14px 12px 14px;
+      color: rgba(235,245,255,0.92);
+    }
+    .buy .title { font-size: 16px; letter-spacing: .4px; margin-bottom: 10px; opacity: .95; }
+    .buy .sub { font-size: 12px; opacity: .75; margin-top: -4px; margin-bottom: 10px; line-height: 1.25; }
+    .buy .grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+    .buy button {
+      width: 100%;
+      padding: 10px 10px;
+      text-align: left;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.05);
+      color: rgba(235,245,255,0.92);
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .buy button:hover { background: rgba(255,255,255,0.08); }
+    .buy button:active { transform: translateY(1px); }
+    .buy .row2 { display: flex; gap: 8px; margin-top: 10px; }
+    .buy .row2 button { text-align: center; }
+    .buy .note { margin-top: 10px; font-size: 12px; opacity: .75; line-height: 1.3; }
+    .buy kbd {
+      font: inherit;
+      padding: 1px 6px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.06);
+      opacity: .95;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div class="hud" id="hud">
+    <div class="row" id="hudTop"></div>
+    <div class="row" id="hudMid"></div>
+    <div class="row" id="hudBot"></div>
+  </div>
+
+  <div class="hint" id="hint">
+    WASD — движение, Shift — идти, Ctrl — присесть, Alt — спринт (стамина), ЛКМ — стрельба, R — перезарядка.<br/>
+    1/2/3 — оружие. Гранаты: G — smoke, F — flash, H — HE, M — molotov. P — ping. Q — выбросить оружие. E — поднять (нажать) / дефьюз (держать).<br/>
+    TAB — скорборд. N — сложность ботов. B — buy menu во время freeze time.
+  </div>
+
+  <div class="banner" id="banner">
+    <div>
+      <div id="bannerText">ROUND</div>
+      <small id="bannerSub">Перезапуск...</small>
+    </div>
+  </div>
+
+  <div class="buy" id="buyMenu" aria-hidden="true">
+    <div class="panel">
+      <div class="title">Buy Menu</div>
+      <div class="sub">Доступно только во время freeze time. Закрыть: <kbd>B</kbd> или <kbd>Esc</kbd>.</div>
+      <div class="grid">
+        <button data-buy="rifle">Buy M4 (условно) — $3100</button>
+        <button data-buy="kevlar">Buy Kevlar — $650</button>
+        <button data-buy="helmet">Buy Helmet (броня 100) — $1000</button>
+        <button data-buy="kit">Buy Defuse Kit — $400</button>
+        <button data-buy="smoke">Buy Smoke — $300</button>
+        <button data-buy="flash">Buy Flash — $200</button>
+        <button data-buy="he">Buy HE Grenade — $300</button>
+        <button data-buy="molotov">Buy Molotov — $400</button>
+        <button data-buy="ammo">Buy Ammo (для текущего оружия) — $200</button>
+      </div>
+      <div class="row2">
+        <button data-buy="close">Close</button>
+      </div>
+      <div class="note">
+        v0.15: фикс Molotov + фикс Defuse (разделены "нажать E" и "держать E").
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d', { alpha: false });
+
+  const hudTop = document.getElementById('hudTop');
+  const hudMid = document.getElementById('hudMid');
+  const hudBot = document.getElementById('hudBot');
+  const banner = document.getElementById('banner');
+  const bannerText = document.getElementById('bannerText');
+  const bannerSub = document.getElementById('bannerSub');
+  const buyMenu = document.getElementById('buyMenu');
+
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function dist2(ax, ay, bx, by) { const dx = bx - ax, dy = by - ay; return dx*dx + dy*dy; }
+  function norm(x, y) { const l = Math.hypot(x, y) || 1; return { x: x / l, y: y / l, l }; }
+  function nowSec() { return performance.now() / 1000; }
+  function fmtTime(s) {
+    s = Math.max(0, Math.ceil(s));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}:${String(r).padStart(2, '0')}`;
+  }
+  function rand(a, b) { return a + (b - a) * Math.random(); }
+  function chance(p) { return Math.random() < p; }
+  function angleNorm(a) { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; }
+  function angleDiff(a, b) { return Math.abs(angleNorm(a - b)); }
+
+  // v0.15: добавлен edge-input (pressed) чтобы "E" работал и как tap (pickup), и как hold (defuse)
+  const input = { keys: new Set(), pressed: new Set(), mouseX: 0, mouseY: 0, mouseDown: false };
+
+  window.addEventListener('keydown', (e) => {
+    if (!input.keys.has(e.code)) input.pressed.add(e.code);
+    input.keys.add(e.code);
+
+    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','Tab'].includes(e.code)) e.preventDefault();
+    if (['KeyR','KeyE','KeyB','KeyG','KeyF','KeyH','KeyM','KeyN','KeyP','KeyQ'].includes(e.code)) e.preventDefault();
+    if (e.code === 'Escape') e.preventDefault();
+  }, { passive: false });
+
+  window.addEventListener('keyup', (e) => {
+    input.keys.delete(e.code);
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    input.mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
+    input.mouseY = (e.clientY - rect.top) * (canvas.height / rect.height);
+  });
+
+  window.addEventListener('mousedown', (e) => { if (e.button === 0) input.mouseDown = true; });
+  window.addEventListener('mouseup', (e) => { if (e.button === 0) input.mouseDown = false; });
+
+  function resize() {
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    canvas.width = Math.floor(window.innerWidth * dpr);
+    canvas.height = Math.floor(window.innerHeight * dpr);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const world = { w: 2200, h: 1400 };
+
+  const walls = [
+    { x: 0, y: 0, w: world.w, h: 40 },
+    { x: 0, y: world.h - 40, w: world.w, h: 40 },
+    { x: 0, y: 0, w: 40, h: world.h },
+    { x: world.w - 40, y: 0, w: 40, h: world.h },
+
+    { x: 420, y: 160, w: 70, h: 520 },
+    { x: 420, y: 760, w: 70, h: 480 },
+
+    { x: 820, y: 160, w: 70, h: 470 },
+    { x: 820, y: 720, w: 70, h: 520 },
+
+    { x: 1180, y: 240, w: 420, h: 70 },
+    { x: 1180, y: 560, w: 420, h: 70 },
+    { x: 1180, y: 880, w: 420, h: 70 },
+
+    { x: 1640, y: 160, w: 70, h: 520 },
+    { x: 1640, y: 760, w: 70, h: 480 },
+
+    { x: 980, y: 360, w: 110, h: 110 },
+    { x: 980, y: 1000, w: 110, h: 110 },
+    { x: 1340, y: 360, w: 110, h: 110 },
+    { x: 1340, y: 1000, w: 110, h: 110 }
+  ];
+
+  const sites = [
+    { name: 'A', x: 1600, y: 180,  w: 420, h: 320 },
+    { name: 'B', x: 1600, y: 900,  w: 420, h: 320 }
+  ];
+
+  function pointInRect(px, py, r) { return (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h); }
+
+  function circleRectResolve(circle, rect) {
+    const closestX = clamp(circle.x, rect.x, rect.x + rect.w);
+    const closestY = clamp(circle.y, rect.y, rect.y + rect.h);
+    const dx = circle.x - closestX;
+    const dy = circle.y - closestY;
+    const d2 = dx*dx + dy*dy;
+    if (d2 >= circle.r * circle.r) return null;
+
+    const d = Math.sqrt(d2) || 0.0001;
+    const overlap = circle.r - d;
+    return { x: (dx / d) * overlap, y: (dy / d) * overlap };
+  }
+
+  function segmentRectIntersection(sx, sy, ex, ey, rect) {
+    const dx = ex - sx;
+    const dy = ey - sy;
+    let t0 = 0, t1 = 1;
+
+    function clip(p, q) {
+      if (Math.abs(p) < 1e-9) return q >= 0;
+      const r = q / p;
+      if (p < 0) {
+        if (r > t1) return false;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return false;
+        if (r < t1) t1 = r;
+      }
+      return true;
+    }
+
+    const xMin = rect.x, xMax = rect.x + rect.w;
+    const yMin = rect.y, yMax = rect.y + rect.h;
+
+    if (!clip(-dx, sx - xMin)) return null;
+    if (!clip(dx, xMax - sx)) return null;
+    if (!clip(-dy, sy - yMin)) return null;
+    if (!clip(dy, yMax - sy)) return null;
+
+    const tHit = t0;
+    if (tHit < 0 || tHit > 1) return null;
+    return { t: tHit, x: sx + dx * tHit, y: sy + dy * tHit };
+  }
+
+  function segmentCircleIntersection(sx, sy, ex, ey, cx, cy, r) {
+    const dx = ex - sx, dy = ey - sy;
+    const fx = sx - cx, fy = sy - cy;
+
+    const a = dx*dx + dy*dy;
+    if (a < 1e-9) return null;
+
+    const b = 2 * (fx*dx + fy*dy);
+    const c = (fx*fx + fy*fy) - r*r;
+
+    const disc = b*b - 4*a*c;
+    if (disc < 0) return null;
+
+    const sDisc = Math.sqrt(disc);
+    const t1 = (-b - sDisc) / (2*a);
+    const t2 = (-b + sDisc) / (2*a);
+
+    let t = null;
+    if (t1 >= 0 && t1 <= 1) t = t1;
+    else if (t2 >= 0 && t2 <= 1) t = t2;
+    if (t === null) return null;
+
+    return { t, x: sx + dx*t, y: sy + dy*t };
+  }
+
+  const weapons = {
+    pistol: {
+      id: 'pistol', slot: 'secondary', name: 'USP-S (условно)',
+      magSize: 12, reserveMax: 48, fireRate: 4.5, reloadTime: 1.55,
+      damage: 34, range: 950,
+      baseSpread: 0.010, moveSpreadAdd: 0.050, crouchMul: 0.65, walkMul: 0.75,
+      recoilPerShot: 0.85, recoilDecayPerSec: 6.0, recoilSpreadAdd: 0.006
+    },
+    rifle: {
+      id: 'rifle', slot: 'primary', name: 'M4 (условно)',
+      magSize: 30, reserveMax: 90, fireRate: 10.0, reloadTime: 2.1,
+      damage: 25, range: 1200,
+      baseSpread: 0.012, moveSpreadAdd: 0.070, crouchMul: 0.70, walkMul: 0.78,
+      recoilPerShot: 0.60, recoilDecayPerSec: 7.5, recoilSpreadAdd: 0.008
+    },
+    knife: { id: 'knife', slot: 'melee', name: 'Knife', attackRate: 1.25, damage: 55, range: 62 }
+  };
+
+  const economy = {
+    maxMoney: 16000,
+    killReward: 300,
+    headshotBonus: 50,
+    winBonus: 3250,
+    lossBonus: 1400,
+    costs: { rifle: 3100, kevlar: 650, helmet: 1000, kit: 400, smoke: 300, flash: 200, he: 300, molotov: 400, ammo: 200 }
+  };
+
+  function clampMoney(m) { return Math.floor(clamp(m, 0, economy.maxMoney)); }
+
+  function makeGunState(weaponId) {
+    const w = weapons[weaponId];
+    return { mag: w.magSize, reserve: w.reserveMax, reloading: false, reloadEndsAt: 0, lastShotAt: -999, recoil: 0 };
+  }
+  function makeKnifeState() { return { lastAttackAt: -999 }; }
+
+  const profile = { money: 800, totalKills: 0, totalDeaths: 0 };
+
+  function makePlayerFromProfile() {
+    return {
+      kind: 'player',
+      team: 'CT',
+      labelId: 0,
+      x: 220, y: world.h * 0.5,
+      r: 16,
+      vx: 0, vy: 0,
+      health: 100,
+      armor: 0,
+      helmet: false,
+      alive: true,
+
+      hasKit: false,
+
+      // v0.15: чтобы Molotov точно тестился "как раньше" — по 1 гранате на старт.
+      smokes: 1,
+      flashes: 1,
+      hes: 1,
+      molotovs: 1,
+
+      crouch: false,
+      aimAngle: 0,
+
+      inventory: { pistol: true, rifle: false },
+      weapon: 'pistol',
+      guns: { pistol: makeGunState('pistol'), rifle: makeGunState('rifle') },
+      knife: makeKnifeState(),
+
+      lastPickupAt: -999,
+      nextFootstepAt: 0,
+
+      stamina: 100
+    };
+  }
+
+  let botUidSeq = 1;
+  function makeBot(team, labelId, x, y) {
+    return {
+      kind: 'bot',
+      uid: botUidSeq++,
+      team,
+      labelId,
+      x, y,
+      r: 16,
+      vx: 0, vy: 0,
+      health: 100,
+      armor: 0,
+      helmet: false,
+      alive: true,
+
+      weapon: 'pistol',
+      guns: { pistol: makeGunState('pistol') },
+
+      aimAngle: 0,
+      thinkAt: 0,
+      targetX: x,
+      targetY: y,
+      reactionAt: 0,
+
+      nextShotAt: 0,
+      missBiasUntil: 0,
+
+      blindUntil: 0,
+      lastSeenX: x,
+      lastSeenY: y,
+      lastSeenAt: -999,
+
+      investigateX: x,
+      investigateY: y,
+      investigateUntil: -999,
+
+      waypointX: x,
+      waypointY: y,
+      waypointUntil: 0,
+
+      planting: false,
+      plantEndsAt: 0,
+
+      nextFootstepAt: 0
+    };
+  }
+
+  const state = {
+    player: makePlayerFromProfile(),
+    bots: [],
+
+    smokes: [],
+    flashes: [],
+    hes: [],
+    molotovThrows: [],
+    fires: [],
+    sounds: [],
+
+    drops: [],
+    pings: [],
+
+    tracers: [],
+    impacts: [],
+    floaters: [],
+    killFeed: [],
+    hitMarkerUntil: 0,
+
+    playerBlindUntil: 0,
+    playerBlindPeak: 0,
+    playerBlindStart: 0,
+    playerBlindDuration: 0,
+
+    round: 1,
+    roundOver: false,
+    roundRestartAt: 0,
+    roundStartedAt: 0,
+    freezeEndsAt: 0,
+    roundEndsAt: 0,
+
+    bomb: null,
+
+    lastBannerAt: -999,
+    lastComputedPlayerSpread: 0.012,
+    buyOpen: false,
+
+    dropSeq: 1,
+
+    botDifficulty: 1,
+    bombBeepAt: 0
+  };
+
+  const botDiffNames = ['EASY', 'NORMAL', 'HARD'];
+  const botParams = {
+    0: { reactMin: 0.35, reactMax: 0.85, baseMiss: 0.32, spreadBase: 0.034, spreadDistAdd: 0.038, fireDelayMin: 0.16, fireDelayMax: 0.55 },
+    1: { reactMin: 0.22, reactMax: 0.55, baseMiss: 0.20, spreadBase: 0.024, spreadDistAdd: 0.028, fireDelayMin: 0.12, fireDelayMax: 0.40 },
+    2: { reactMin: 0.16, reactMax: 0.42, baseMiss: 0.12, spreadBase: 0.018, spreadDistAdd: 0.020, fireDelayMin: 0.10, fireDelayMax: 0.32 }
+  };
+
+  function isFrozen() { return nowSec() < state.freezeEndsAt; }
+
+  function showBanner(text, sub, seconds = 1.35) {
+    state.lastBannerAt = nowSec();
+    bannerText.textContent = text;
+    bannerSub.textContent = sub || '';
+    banner.style.display = 'flex';
+
+    const token = state.lastBannerAt;
+    setTimeout(() => {
+      if (state.lastBannerAt === token && !state.roundOver) banner.style.display = 'none';
+    }, Math.max(0, seconds * 1000));
+    if (state.roundOver) banner.style.display = 'flex';
+  }
+
+  function pushKillFeed(text, color) {
+    state.killFeed.push({ text, color, tEnd: nowSec() + 2.8 });
+    if (state.killFeed.length > 6) state.killFeed.shift();
+  }
+
+  function pushFloater(x, y, text, color) {
+    state.floaters.push({ x, y, vx: rand(-10, 10), vy: rand(-32, -18), text, color, tEnd: nowSec() + 0.9 });
+  }
+
+  function openBuyMenu() { state.buyOpen = true; buyMenu.style.display = 'flex'; buyMenu.setAttribute('aria-hidden', 'false'); }
+  function closeBuyMenu() { state.buyOpen = false; buyMenu.style.display = 'none'; buyMenu.setAttribute('aria-hidden', 'true'); }
+  function toggleBuyMenu() {
+    if (!isFrozen() || state.roundOver || !state.player.alive) { showBanner('INFO', 'Buy menu доступно только во время freeze time.', 0.9); return; }
+    if (state.buyOpen) closeBuyMenu(); else openBuyMenu();
+  }
+
+  function addMoney(amount) { profile.money = clampMoney(profile.money + amount); }
+
+  function actorLabel(a) {
+    if (a.kind === 'player') return 'CT';
+    return `${a.team}${a.labelId}`;
+  }
+
+  function getAllActors() { return [state.player, ...state.bots]; }
+
+  function getGunAndDef(actor) {
+    if (!actor || !actor.weapon) return null;
+    if (actor.weapon === 'knife') return null;
+    const def = weapons[actor.weapon];
+    if (!def) return null;
+    const gs = actor.guns && actor.guns[actor.weapon];
+    if (!gs) return null;
+    return { def, gs };
+  }
+
+  function cancelReloadIfAny(actor, weaponId) {
+    if (!actor || !weaponId || weaponId === 'knife') return;
+    const gs = actor.guns && actor.guns[weaponId];
+    if (!gs) return;
+    if (!gs.reloading) return;
+    gs.reloading = false;
+    gs.reloadEndsAt = 0;
+  }
+
+  function finishReload(actor) {
+    const g = getGunAndDef(actor);
+    if (!g) return;
+    const { def, gs } = g;
+    if (!gs.reloading) return;
+    if (nowSec() < gs.reloadEndsAt) return;
+
+    const need = def.magSize - gs.mag;
+    const take = Math.min(need, gs.reserve);
+    gs.mag += take;
+    gs.reserve -= take;
+    gs.reloading = false;
+  }
+
+  function startReload(actor) {
+    if (!actor.alive) return;
+    const g = getGunAndDef(actor);
+    if (!g) return;
+
+    const { def, gs } = g;
+    if (gs.reloading) return;
+    if (gs.mag >= def.magSize) return;
+    if (gs.reserve <= 0) return;
+    if (isFrozen()) return;
+
+    gs.reloading = true;
+    gs.reloadEndsAt = nowSec() + def.reloadTime;
+  }
+
+  function canGunShoot(actor) {
+    if (!actor.alive) return false;
+    const g = getGunAndDef(actor);
+    if (!g) return false;
+    if (isFrozen()) return false;
+
+    const { def, gs } = g;
+    if (gs.reloading) return false;
+    if (gs.mag <= 0) return false;
+
+    const t = nowSec();
+    return (t - gs.lastShotAt) >= (1 / def.fireRate);
+  }
+
+  function computeGunSpread(actor, def, isWalking, isCrouching, isSprinting) {
+    const baseSpeed = 265;
+    const speed = Math.hypot(actor.vx, actor.vy);
+    const move01 = clamp(speed / baseSpeed, 0, 1);
+    const recoil = actor.guns && actor.guns[def.id] ? (actor.guns[def.id].recoil || 0) : 0;
+
+    let spread = def.baseSpread + (def.moveSpreadAdd * move01) * (isWalking ? def.walkMul : 1);
+    if (isSprinting) spread *= 1.35;
+    spread += recoil * def.recoilSpreadAdd;
+    if (isCrouching) spread *= def.crouchMul;
+    return spread;
+  }
+
+  function applySpreadAim(sx, sy, aimX, aimY, spreadRad) {
+    const a = Math.atan2(aimY - sy, aimX - sx);
+    const off = (Math.random() * 2 - 1) * spreadRad;
+    const ang = a + off;
+    const far = 2400;
+    return { x: sx + Math.cos(ang) * far, y: sy + Math.sin(ang) * far };
+  }
+
+  function isBulletWeapon(wpn) { return wpn && (wpn.id === 'pistol' || wpn.id === 'rifle'); }
+
+  function getHeadCircle(victim) {
+    const headR = Math.max(7.5, victim.r * 0.52);
+    const headX = victim.x;
+    const headY = victim.y - victim.r * 0.78;
+    return { x: headX, y: headY, r: headR };
+  }
+
+  function hasWallLOS(ax, ay, bx, by) {
+    for (const w of walls) {
+      const hit = segmentRectIntersection(ax, ay, bx, by, w);
+      if (hit) return false;
+    }
+    return true;
+  }
+
+  function smokeRadius(smoke, t) {
+    const grow = 0.55;
+    const a = clamp((t - smoke.tSpawn) / grow, 0, 1);
+    return smoke.rMax * (0.15 + 0.85 * a);
+  }
+
+  function segmentIntersectsAnySmoke(ax, ay, bx, by) {
+    const t = nowSec();
+    for (const s of state.smokes) {
+      if (t >= s.tEnd) continue;
+      const r = smokeRadius(s, t);
+      const hit = segmentCircleIntersection(ax, ay, bx, by, s.x, s.y, r);
+      if (hit) return true;
+    }
+    return false;
+  }
+
+  function hasLineOfSight(ax, ay, bx, by) {
+    if (!hasWallLOS(ax, ay, bx, by)) return false;
+    if (segmentIntersectsAnySmoke(ax, ay, bx, by)) return false;
+    return true;
+  }
+
+  function damageFalloff(weaponId, d) {
+    if (weaponId === 'pistol') {
+      if (d <= 350) return 1.0;
+      const t = clamp((d - 350) / 600, 0, 1);
+      return lerp(1.0, 0.62, t);
+    }
+    if (weaponId === 'rifle') {
+      if (d <= 450) return 1.0;
+      const t = clamp((d - 450) / 750, 0, 1);
+      return lerp(1.0, 0.70, t);
+    }
+    return 1.0;
+  }
+
+  function dropWeaponFromActor(actor, weaponId) {
+    if (!weaponId || weaponId === 'knife') return;
+    const def = weapons[weaponId];
+    if (!def || !actor.guns || !actor.guns[weaponId]) return;
+
+    const gs = actor.guns[weaponId];
+    state.drops.push({
+      id: state.dropSeq++,
+      x: actor.x + rand(-10, 10),
+      y: actor.y + rand(-10, 10),
+      weaponId,
+      mag: gs.mag,
+      reserve: gs.reserve,
+      tEnd: nowSec() + 25.0
+    });
+    if (state.drops.length > 18) state.drops.shift();
+  }
+
+  // no friendly fire
+  function applyDamage(victim, dmg, attacker, meta = {}) {
+    if (!victim.alive) return;
+    if (attacker && victim !== attacker && victim.team === attacker.team) return;
+
+    let finalDmg = dmg;
+    if (meta.headshot) {
+      const hsMul = victim.helmet ? 1.45 : 2.1;
+      finalDmg = dmg * hsMul;
+    }
+
+    let remaining = finalDmg;
+    if (victim.armor > 0) {
+      const absorb = Math.min(victim.armor, remaining * 0.6);
+      victim.armor -= absorb;
+      remaining -= absorb;
+    }
+
+    victim.health -= remaining;
+
+    if (victim.health <= 0) {
+      victim.health = 0;
+      victim.alive = false;
+
+      if (victim.weapon && victim.weapon !== 'knife') dropWeaponFromActor(victim, victim.weapon);
+
+      const attackerName = attacker ? actorLabel(attacker) : '???';
+      const victimName = actorLabel(victim);
+      const weaponTag = meta.weaponId ? meta.weaponId.toUpperCase() : 'KILL';
+      const hsTag = meta.headshot ? ' (HS)' : '';
+      pushKillFeed(`${attackerName} > ${victimName} [${weaponTag}]${hsTag}`, meta.headshot ? 'rgba(255,210,140,0.95)' : 'rgba(235,245,255,0.85)');
+
+      if (victim === state.player) profile.totalDeaths++;
+      else if (attacker === state.player) {
+        profile.totalKills++;
+        addMoney(economy.killReward + (meta.headshot ? economy.headshotBonus : 0));
+      }
+    }
+  }
+
+  function raycastWeapon(shooter, aimX, aimY, wpn, opts = {}) {
+    const sx = shooter.x;
+    const sy = shooter.y;
+
+    let ex = aimX, ey = aimY;
+    if (opts.spreadRad && opts.spreadRad > 0) {
+      const a = applySpreadAim(sx, sy, aimX, aimY, opts.spreadRad);
+      ex = a.x; ey = a.y;
+    }
+
+    const dir = norm(ex - sx, ey - sy);
+    const endX = sx + dir.x * wpn.range;
+    const endY = sy + dir.y * wpn.range;
+
+    let bestWall = null;
+    for (const w of walls) {
+      const hit = segmentRectIntersection(sx, sy, endX, endY, w);
+      if (!hit) continue;
+      if (!bestWall || hit.t < bestWall.t) bestWall = hit;
+    }
+    const maxT = bestWall ? bestWall.t : 1;
+
+    const actors = getAllActors();
+    let bestVictim = null;
+
+    for (const v of actors) {
+      if (!v || !v.alive) continue;
+      if (v === shooter) continue;
+      if (v.team === shooter.team) continue;
+
+      const head = getHeadCircle(v);
+      const headHit = segmentCircleIntersection(sx, sy, endX, endY, head.x, head.y, head.r);
+      const bodyHit = segmentCircleIntersection(sx, sy, endX, endY, v.x, v.y, v.r);
+
+      let pick = null;
+      if (headHit && headHit.t <= maxT) pick = { ...headHit, victim: v, hitGroup: 'head' };
+      if (bodyHit && bodyHit.t <= maxT) {
+        if (!pick || bodyHit.t < pick.t) pick = { ...bodyHit, victim: v, hitGroup: 'body' };
+      }
+      if (!pick) continue;
+      if (!bestVictim || pick.t < bestVictim.t) bestVictim = pick;
+    }
+
+    let hx = endX, hy = endY, hitType = 'none';
+    if (bestWall) { hx = bestWall.x; hy = bestWall.y; hitType = 'wall'; }
+    if (bestVictim) { hx = bestVictim.x; hy = bestVictim.y; hitType = 'player'; }
+
+    if (opts.tracer) {
+      state.tracers.push({
+        x1: sx, y1: sy, x2: hx, y2: hy,
+        tEnd: nowSec() + 0.06,
+        color: shooter.team === 'CT' ? 'rgba(120,190,255,0.8)' : 'rgba(255,160,120,0.8)'
+      });
+    }
+
+    if (opts.impact) {
+      const kind = (bestVictim && bestVictim.hitGroup === 'head') ? 'headshot' : (opts.impactKind || 'bullet');
+      state.impacts.push({ x: hx, y: hy, tEnd: nowSec() + 0.22, kind });
+    }
+
+    if (hitType === 'player') {
+      const headshot = !!(bestVictim && bestVictim.hitGroup === 'head' && isBulletWeapon(wpn));
+      const d = Math.hypot(hx - sx, hy - sy);
+      const fall = damageFalloff(wpn.id, d);
+      const dmg = wpn.damage * fall;
+      applyDamage(bestVictim.victim, dmg, shooter, { headshot, weaponId: wpn.id });
+
+      if (shooter === state.player) {
+        state.hitMarkerUntil = nowSec() + 0.08;
+        if (headshot) pushFloater(hx, hy, 'HS', 'rgba(255,210,140,0.95)');
+      }
+      return { hit: true, kind: 'player', x: hx, y: hy, victim: bestVictim.victim, headshot };
+    }
+
+    return { hit: hitType !== 'none', kind: hitType, x: hx, y: hy, headshot: false };
+  }
+
+  function applyExplosionDamage(x, y, radius, maxDmg, attacker) {
+    for (const a of getAllActors()) {
+      if (!a || !a.alive) continue;
+      const d = Math.sqrt(dist2(a.x, a.y, x, y));
+      if (d > radius) continue;
+      if (!hasWallLOS(x, y, a.x, a.y)) continue;
+      const k = clamp(1 - d / radius, 0, 1);
+      const dmg = maxDmg * (0.25 + 0.75 * k);
+      applyDamage(a, dmg, attacker, { headshot: false, weaponId: 'he' });
+      if (attacker === state.player && a.team !== attacker.team) state.hitMarkerUntil = nowSec() + 0.06;
+    }
+  }
+
+  const cam = { x: 0, y: 0 };
+  function updateCamera(dt) {
+    const p = state.player;
+    cam.x = lerp(cam.x, p.x, 1 - Math.pow(0.0001, dt));
+    cam.y = lerp(cam.y, p.y, 1 - Math.pow(0.0001, dt));
+  }
+  function worldToScreenX(x) { return x - cam.x + canvas.width / 2; }
+  function worldToScreenY(y) { return y - cam.y + canvas.height / 2; }
+  function screenToWorldX(x) { return x + cam.x - canvas.width / 2; }
+  function screenToWorldY(y) { return y + cam.y - canvas.height / 2; }
+
+  function isWorldPointOnPlayerScreen(wx, wy, marginPx = 40) {
+    const p = state.player;
+    const sx = wx - p.x + canvas.width / 2;
+    const sy = wy - p.y + canvas.height / 2;
+    return (sx >= -marginPx && sx <= canvas.width + marginPx && sy >= -marginPx && sy <= canvas.height + marginPx);
+  }
+
+  function chooseNearestSite(x, y) {
+    let best = null;
+    for (const s of sites) {
+      const cx = s.x + s.w / 2;
+      const cy = s.y + s.h / 2;
+      const d = dist2(x, y, cx, cy);
+      if (!best || d < best.d) best = { site: s, d };
+    }
+    return best ? best.site : sites[0];
+  }
+
+  function castToWalls(sx, sy, ex, ey) {
+    let best = null;
+    for (const w of walls) {
+      const hit = segmentRectIntersection(sx, sy, ex, ey, w);
+      if (!hit) continue;
+      if (!best || hit.t < best.t) best = hit;
+    }
+    return best;
+  }
+
+  function registerSound(x, y, r, ttl) {
+    state.sounds.push({ x, y, r, tEnd: nowSec() + ttl });
+    if (state.sounds.length > 34) state.sounds.shift();
+  }
+
+  function emitFootsteps(actor, meta = {}) {
+    if (!actor.alive || isFrozen() || state.roundOver) return;
+    const t = nowSec();
+    const speed = Math.hypot(actor.vx, actor.vy);
+    if (speed < 8) return;
+
+    const crouch = !!actor.crouch;
+    const sprint = !!meta.sprinting;
+
+    const walking = (actor === state.player)
+      ? (input.keys.has('ShiftLeft') || input.keys.has('ShiftRight'))
+      : (speed < 160);
+
+    const interval = sprint ? 0.26 : (crouch ? 0.62 : (walking ? 0.46 : 0.32));
+    if (t < (actor.nextFootstepAt || 0)) return;
+
+    actor.nextFootstepAt = t + interval;
+    const radius = sprint ? 680 : (crouch ? 200 : (walking ? 320 : 520));
+    registerSound(actor.x, actor.y, radius, 0.35);
+  }
+
+  // ===== Grenades (включая Molotov) =====
+  function tryThrowSmoke() {
+    const p = state.player;
+    if (!p.alive || isFrozen() || state.roundOver || state.buyOpen) return;
+    if (p.smokes <= 0) { showBanner('INFO', 'Нет smoke гранат.', 0.8); return; }
+
+    const aimWX = screenToWorldX(input.mouseX);
+    const aimWY = screenToWorldY(input.mouseY);
+    const d = norm(aimWX - p.x, aimWY - p.y);
+
+    const throwRange = 560;
+    const rawX = p.x + d.x * throwRange;
+    const rawY = p.y + d.y * throwRange;
+
+    const wallHit = castToWalls(p.x, p.y, rawX, rawY);
+    const landX = wallHit ? wallHit.x : rawX;
+    const landY = wallHit ? wallHit.y : rawY;
+
+    p.smokes--;
+    const t = nowSec();
+    state.smokes.push({ x: landX, y: landY, rMax: 125, tSpawn: t, tEnd: t + 12.0 });
+    pushFloater(landX, landY, 'SMOKE', 'rgba(210,220,235,0.95)');
+    registerSound(landX, landY, 520, 0.8);
+  }
+
+  function tryThrowFlash() {
+    const p = state.player;
+    if (!p.alive || isFrozen() || state.roundOver || state.buyOpen) return;
+    if (p.flashes <= 0) { showBanner('INFO', 'Нет flash гранат.', 0.8); return; }
+
+    const aimWX = screenToWorldX(input.mouseX);
+    const aimWY = screenToWorldY(input.mouseY);
+    const d = norm(aimWX - p.x, aimWY - p.y);
+
+    const throwRange = 560;
+    const rawX = p.x + d.x * throwRange;
+    const rawY = p.y + d.y * throwRange;
+
+    const wallHit = castToWalls(p.x, p.y, rawX, rawY);
+    const landX = wallHit ? wallHit.x : rawX;
+    const landY = wallHit ? wallHit.y : rawY;
+
+    p.flashes--;
+    const t = nowSec();
+    const fuse = 1.05;
+    state.flashes.push({ x: landX, y: landY, tThrow: t, tDetonate: t + fuse, tEnd: t + fuse + 0.35, detonated: false });
+    pushFloater(landX, landY, 'FLASH', 'rgba(255,245,210,0.95)');
+    registerSound(landX, landY, 620, 1.0);
+  }
+
+  function tryThrowHE() {
+    const p = state.player;
+    if (!p.alive || isFrozen() || state.roundOver || state.buyOpen) return;
+    if (p.hes <= 0) { showBanner('INFO', 'Нет HE гранат.', 0.8); return; }
+
+    const aimWX = screenToWorldX(input.mouseX);
+    const aimWY = screenToWorldY(input.mouseY);
+    const d = norm(aimWX - p.x, aimWY - p.y);
+
+    const throwRange = 560;
+    const rawX = p.x + d.x * throwRange;
+    const rawY = p.y + d.y * throwRange;
+
+    const wallHit = castToWalls(p.x, p.y, rawX, rawY);
+    const landX = wallHit ? wallHit.x : rawX;
+    const landY = wallHit ? wallHit.y : rawY;
+
+    p.hes--;
+    const t = nowSec();
+    const fuse = 1.10;
+    state.hes.push({ x: landX, y: landY, tThrow: t, tDetonate: t + fuse, tEnd: t + fuse + 0.30, detonated: false });
+    pushFloater(landX, landY, 'HE', 'rgba(255,190,120,0.95)');
+    registerSound(landX, landY, 560, 0.7);
+  }
+
+  function tryThrowMolotov() {
+    const p = state.player;
+    if (!p.alive || isFrozen() || state.roundOver || state.buyOpen) return;
+    if (p.molotovs <= 0) { showBanner('INFO', 'Нет molotov.', 0.8); return; }
+
+    const aimWX = screenToWorldX(input.mouseX);
+    const aimWY = screenToWorldY(input.mouseY);
+    const d = norm(aimWX - p.x, aimWY - p.y);
+
+    const throwRange = 560;
+    const rawX = p.x + d.x * throwRange;
+    const rawY = p.y + d.y * throwRange;
+
+    const wallHit = castToWalls(p.x, p.y, rawX, rawY);
+    const landX = wallHit ? wallHit.x : rawX;
+    const landY = wallHit ? wallHit.y : rawY;
+
+    p.molotovs--;
+
+    const t = nowSec();
+    const fuse = 0.95;
+    // v0.15: важно НЕ удалять объект до детонации — делаем tEnd с запасом.
+    state.molotovThrows.push({ x: landX, y: landY, tDetonate: t + fuse, tEnd: t + fuse + 1.0, detonated: false });
+
+    pushFloater(landX, landY, 'MOLOTOV', 'rgba(255,155,90,0.95)');
+    registerSound(landX, landY, 600, 0.8);
+  }
+
+  function flashAffectsActor(actor, flashX, flashY) {
+    if (!actor.alive) return null;
+
+    const d = Math.sqrt(dist2(actor.x, actor.y, flashX, flashY));
+    const maxR = 420;
+    if (d > maxR) return null;
+
+    if (!hasWallLOS(actor.x, actor.y, flashX, flashY)) return null;
+
+    const toFlash = Math.atan2(flashY - actor.y, flashX - actor.x);
+    const diff = angleDiff(actor.aimAngle || 0, toFlash);
+    const facing = clamp(1 - (diff / Math.PI), 0, 1);
+
+    const dist01 = clamp(d / maxR, 0, 1);
+    const baseDur = lerp(2.9, 0.75, dist01);
+    const dur = baseDur * (0.25 + 0.75 * facing);
+    const peak = clamp((1 - dist01) * (0.35 + 0.65 * facing), 0, 1);
+
+    if (dur <= 0.10 || peak <= 0.05) return null;
+    return { dur, peak };
+  }
+
+  function detonateFlash(flash) {
+    const t = nowSec();
+    if (flash.detonated) return;
+    flash.detonated = true;
+
+    const p = state.player;
+    const effP = flashAffectsActor(p, flash.x, flash.y);
+    if (effP) {
+      state.playerBlindStart = t;
+      state.playerBlindDuration = effP.dur;
+      state.playerBlindUntil = t + effP.dur;
+      state.playerBlindPeak = Math.max(state.playerBlindPeak, effP.peak);
+    }
+
+    for (const b of state.bots) {
+      const effB = flashAffectsActor(b, flash.x, flash.y);
+      if (!effB) continue;
+      b.blindUntil = Math.max(b.blindUntil, t + effB.dur);
+      b.nextShotAt = Math.max(b.nextShotAt, t + rand(0.35, 0.90));
+      b.missBiasUntil = Math.max(b.missBiasUntil, t + effB.dur + rand(0.2, 0.6));
+      b.lastSeenAt = Math.min(b.lastSeenAt, t - 10);
+    }
+
+    state.impacts.push({ x: flash.x, y: flash.y, tEnd: t + 0.18, kind: 'headshot' });
+  }
+
+  function updateFlashes() {
+    const t = nowSec();
+    for (const f of state.flashes) {
+      if (!f.detonated && t >= f.tDetonate) detonateFlash(f);
+    }
+  }
+
+  function detonateHE(he) {
+    const t = nowSec();
+    if (he.detonated) return;
+    he.detonated = true;
+
+    state.impacts.push({ x: he.x, y: he.y, tEnd: t + 0.22, kind: 'explosion' });
+    registerSound(he.x, he.y, 900, 0.9);
+    applyExplosionDamage(he.x, he.y, 220, 95, state.player);
+    pushFloater(he.x, he.y, 'BOOM', 'rgba(255,190,120,0.95)');
+  }
+
+  function updateHEs() {
+    const t = nowSec();
+    for (const h of state.hes) {
+      if (!h.detonated && t >= h.tDetonate) detonateHE(h);
+    }
+  }
+
+  function detonateMolotov(mt) {
+    const t = nowSec();
+    if (mt.detonated) return;
+    mt.detonated = true;
+
+    state.impacts.push({ x: mt.x, y: mt.y, tEnd: t + 0.26, kind: 'fireburst' });
+    registerSound(mt.x, mt.y, 780, 0.9);
+
+    state.fires.push({ x: mt.x, y: mt.y, r: 140, tEnd: t + 7.0, nextTickAt: t + 0.10 });
+    pushFloater(mt.x, mt.y, 'FIRE', 'rgba(255,155,90,0.95)');
+  }
+
+  function updateMolotovs() {
+    const t = nowSec();
+    for (const m of state.molotovThrows) {
+      if (!m.detonated && t >= m.tDetonate) detonateMolotov(m);
+    }
+    state.molotovThrows = state.molotovThrows.filter(m => m.tEnd > t);
+  }
+
+  function updateFires() {
+    const t = nowSec();
+    const tick = 0.20;
+    const dmg = 12;
+
+    for (const f of state.fires) {
+      if (t < f.nextTickAt) continue;
+      f.nextTickAt = t + tick;
+
+      for (const a of getAllActors()) {
+        if (!a.alive) continue;
+        const d = Math.sqrt(dist2(a.x, a.y, f.x, f.y));
+        if (d > f.r) continue;
+        if (!hasWallLOS(f.x, f.y, a.x, a.y)) continue;
+
+        // у огня нет конкретного атакующего — используем "null" и ручную фильтрацию по командам
+        // (иначе некоторые сборки могли блокировать урон по логике friendly-fire)
+        // Дамажим только T.
+        if (a.team === 'T') applyDamage(a, dmg, null, { headshot: false, weaponId: 'molotov' });
+      }
+    }
+
+    state.fires = state.fires.filter(f => f.tEnd > t);
+  }
+
+  // ===== Drops / Ping =====
+  function nearestDropToPlayer() {
+    const p = state.player;
+    if (!p.alive) return null;
+
+    let best = null;
+    for (const d of state.drops) {
+      const d2 = dist2(p.x, p.y, d.x, d.y);
+      if (d2 > 44 * 44) continue;
+      if (!best || d2 < best.d2) best = { drop: d, d2 };
+    }
+    return best ? best.drop : null;
+  }
+
+  function tryPickupDrop() {
+    const p = state.player;
+    if (!p.alive || isFrozen() || state.roundOver || state.buyOpen) return;
+
+    const t = nowSec();
+    if ((t - p.lastPickupAt) < 0.28) return;
+
+    const bomb = state.bomb;
+    if (bomb && bomb.planted && !bomb.defused) {
+      const nearBomb = dist2(p.x, p.y, bomb.x, bomb.y) <= (44 * 44);
+      if (nearBomb) return; // чтобы не сбивать дефьюз
+    }
+
+    const d = nearestDropToPlayer();
+    if (!d) return;
+
+    p.lastPickupAt = t;
+
+    if (d.weaponId === 'rifle') {
+      p.inventory.rifle = true;
+      cancelReloadIfAny(p, p.weapon);
+      p.weapon = 'rifle';
+      p.guns.rifle = makeGunState('rifle');
+      p.guns.rifle.mag = clamp(d.mag, 0, weapons.rifle.magSize);
+      p.guns.rifle.reserve = clamp(d.reserve, 0, weapons.rifle.reserveMax);
+      pushFloater(d.x, d.y, 'PICKUP RIFLE', 'rgba(120,190,255,0.95)');
+    } else if (d.weaponId === 'pistol') {
+      cancelReloadIfAny(p, p.weapon);
+      p.weapon = 'pistol';
+      p.guns.pistol.mag = clamp(d.mag, 0, weapons.pistol.magSize);
+      p.guns.pistol.reserve = clamp(d.reserve, 0, weapons.pistol.reserveMax);
+      pushFloater(d.x, d.y, 'PICKUP PISTOL', 'rgba(120,190,255,0.95)');
+    }
+
+    state.drops = state.drops.filter(x => x.id !== d.id);
+  }
+
+  function dropCurrentWeaponPlayer() {
+    const p = state.player;
+    if (!p.alive || isFrozen() || state.roundOver || state.buyOpen) return;
+    if (p.weapon === 'knife') return;
+
+    dropWeaponFromActor(p, p.weapon);
+
+    if (p.weapon === 'rifle') {
+      p.inventory.rifle = false;
+      cancelReloadIfAny(p, 'rifle');
+      p.weapon = 'pistol';
+    }
+
+    pushFloater(p.x, p.y, 'DROP', 'rgba(235,245,255,0.8)');
+  }
+
+  function placePing() {
+    const p = state.player;
+    if (!p.alive || isFrozen() || state.roundOver || state.buyOpen) return;
+
+    const wx = screenToWorldX(input.mouseX);
+    const wy = screenToWorldY(input.mouseY);
+
+    state.pings.push({ x: wx, y: wy, tEnd: nowSec() + 3.0 });
+    if (state.pings.length > 6) state.pings.shift();
+
+    registerSound(wx, wy, 420, 0.45);
+    pushFloater(wx, wy, 'PING', 'rgba(160,220,255,0.95)');
+  }
+
+  // ===== Bomb + Defuse =====
+  function getBotByUid(uid) { return state.bots.find(b => b.kind === 'bot' && b.uid === uid) || null; }
+
+  function updateBombLogic() {
+    const b = state.bomb;
+    if (!b) return;
+
+    if (!b.planted && !b.dropped && b.carrierUid != null) {
+      const carrier = getBotByUid(b.carrierUid);
+      if (carrier && carrier.alive && carrier.team === 'T') { b.x = carrier.x; b.y = carrier.y; }
+      else { b.dropped = true; b.carrierUid = null; }
+    }
+
+    if (!b.planted && b.dropped && b.carrierUid == null) {
+      for (const bot of state.bots) {
+        if (!bot.alive || bot.team !== 'T') continue;
+        if (dist2(bot.x, bot.y, b.x, b.y) <= (bot.r + 14) * (bot.r + 14)) {
+          b.carrierUid = bot.uid;
+          b.dropped = false;
+          break;
+        }
+      }
+    }
+
+    if (b.planted && !b.defused && nowSec() >= b.explodeAt) setRoundOver('T WIN', 'Bomb exploded.', false);
+  }
+
+  function updateBombBeepSound() {
+    const b = state.bomb;
+    if (!b || !b.planted || b.defused) return;
+    const t = nowSec();
+    if (state.bombBeepAt === 0) state.bombBeepAt = t + 0.25;
+    if (t >= state.bombBeepAt) {
+      state.bombBeepAt = t + 1.20;
+      registerSound(b.x, b.y, 520, 0.45);
+    }
+  }
+
+  function updateDefuseLogic() {
+    const b = state.bomb;
+    const p = state.player;
+    if (!b || !p.alive) return;
+    if (!b.planted || b.defused) return;
+
+    if (isFrozen()) { b.defuseStartedAt = 0; b.defuseEndsAt = 0; return; }
+
+    const near = dist2(p.x, p.y, b.x, b.y) <= (38 * 38);
+    const holding = input.keys.has('KeyE');
+    const defuseTime = p.hasKit ? 5.0 : 10.0;
+
+    if (near && holding) {
+      if (!b.defuseStartedAt) {
+        b.defuseStartedAt = nowSec();
+        b.defuseEndsAt = b.defuseStartedAt + defuseTime;
+      }
+      if (nowSec() >= b.defuseEndsAt) {
+        b.defused = true;
+        setRoundOver('CT WIN', 'Bomb defused.', true);
+      }
+    } else {
+      b.defuseStartedAt = 0;
+      b.defuseEndsAt = 0;
+    }
+  }
+
+  function ctAliveCount() {
+    let n = state.player.alive ? 1 : 0;
+    for (const b of state.bots) if (b.alive && b.team === 'CT') n++;
+    return n;
+  }
+  function tAliveCount() {
+    let n = 0;
+    for (const b of state.bots) if (b.alive && b.team === 'T') n++;
+    return n;
+  }
+
+  function spawnRound() {
+    botUidSeq = 1;
+
+    state.player = makePlayerFromProfile();
+
+    state.tracers.length = 0;
+    state.impacts.length = 0;
+    state.floaters.length = 0;
+    state.killFeed.length = 0;
+    state.smokes.length = 0;
+    state.flashes.length = 0;
+    state.hes.length = 0;
+    state.molotovThrows.length = 0;
+    state.fires.length = 0;
+    state.sounds.length = 0;
+    state.drops.length = 0;
+    state.pings.length = 0;
+
+    state.hitMarkerUntil = 0;
+    state.playerBlindUntil = 0;
+    state.playerBlindPeak = 0;
+    state.playerBlindStart = 0;
+    state.playerBlindDuration = 0;
+
+    const p = state.player;
+
+    const ct1 = makeBot('CT', 1, p.x + 70, p.y - 70);
+    const ct2 = makeBot('CT', 2, p.x + 70, p.y + 70);
+
+    const t1 = makeBot('T', 1, world.w - 260, 240);
+    const t2 = makeBot('T', 2, world.w - 260, world.h - 240);
+    const t3 = makeBot('T', 3, world.w - 520, world.h * 0.5);
+
+    state.bots = [ct1, ct2, t1, t2, t3];
+
+    state.roundOver = false;
+    state.roundRestartAt = 0;
+    banner.style.display = 'none';
+
+    const t = nowSec();
+    const freeze = 10.0;
+    const roundTime = 105;
+    state.roundStartedAt = t;
+    state.freezeEndsAt = t + freeze;
+    state.roundEndsAt = state.freezeEndsAt + roundTime;
+
+    const carrier = [t1, t2, t3].find(b => b.alive) || null;
+    state.bomb = {
+      carrierUid: carrier ? carrier.uid : null,
+      dropped: false,
+      planted: false,
+      defused: false,
+      x: carrier ? carrier.x : world.w - 260,
+      y: carrier ? carrier.y : world.h * 0.5,
+      plantStartedAt: 0,
+      plantEndsAt: 0,
+      plantedAt: 0,
+      explodeAt: 0,
+      defuseStartedAt: 0,
+      defuseEndsAt: 0,
+      siteName: null
+    };
+
+    state.bombBeepAt = 0;
+
+    closeBuyMenu();
+    showBanner(`ROUND ${state.round}`, `FREEZE TIME | BOT: ${botDiffNames[state.botDifficulty]} | CT bots: 2`, 1.1);
+  }
+
+  function setRoundOver(text, sub, ctWon) {
+    if (state.roundOver) return;
+    state.roundOver = true;
+    state.roundRestartAt = nowSec() + 2.2;
+    bannerText.textContent = text;
+    bannerSub.textContent = sub || 'Перезапуск...';
+    banner.style.display = 'flex';
+
+    addMoney(ctWon ? economy.winBonus : economy.lossBonus);
+    closeBuyMenu();
+  }
+
+  // ===== Player =====
+  function switchWeaponPlayer(newWeapon) {
+    const p = state.player;
+    if (!p.alive) return;
+    if (p.weapon === newWeapon) return;
+    cancelReloadIfAny(p, p.weapon);
+    p.weapon = newWeapon;
+  }
+
+  function updatePlayer(dt) {
+    const p = state.player;
+    if (!p.alive) return;
+
+    if (state.buyOpen && input.keys.has('Escape')) closeBuyMenu();
+
+    if (input.keys.has('Digit1') && p.inventory.rifle) switchWeaponPlayer('rifle');
+    if (input.keys.has('Digit2')) switchWeaponPlayer('pistol');
+    if (input.keys.has('Digit3')) switchWeaponPlayer('knife');
+
+    p.crouch = input.keys.has('ControlLeft') || input.keys.has('ControlRight');
+
+    const aimWX = screenToWorldX(input.mouseX);
+    const aimWY = screenToWorldY(input.mouseY);
+    p.aimAngle = Math.atan2(aimWY - p.y, aimWX - p.x);
+
+    if (isFrozen()) { p.vx = 0; p.vy = 0; return; }
+
+    finishReload(p);
+
+    const up = input.keys.has('KeyW');
+    const dn = input.keys.has('KeyS');
+    const lf = input.keys.has('KeyA');
+    const rt = input.keys.has('KeyD');
+    const walk = input.keys.has('ShiftLeft') || input.keys.has('ShiftRight');
+
+    let mx = (rt ? 1 : 0) - (lf ? 1 : 0);
+    let my = (dn ? 1 : 0) - (up ? 1 : 0);
+    if (mx !== 0 || my !== 0) { const n = norm(mx, my); mx = n.x; my = n.y; }
+
+    const moving = (mx !== 0 || my !== 0);
+
+    const wantSprint = input.keys.has('AltLeft') || input.keys.has('AltRight');
+    const canSprint = wantSprint && moving && !walk && !p.crouch && p.stamina > 3;
+
+    const baseSpeed = 265;
+    const walkMul = 0.52;
+    const knifeMul = (p.weapon === 'knife') ? 1.18 : 1.0;
+    const crouchMul = p.crouch ? 0.52 : 1.0;
+    const sprintMul = 1.26;
+
+    const speed = baseSpeed * (walk ? walkMul : 1) * knifeMul * crouchMul * (canSprint ? sprintMul : 1);
+
+    if (canSprint) p.stamina = clamp(p.stamina - dt * 28, 0, 100);
+    else p.stamina = clamp(p.stamina + dt * (moving ? 15 : 18), 0, 100);
+
+    p.vx = mx * speed;
+    p.vy = my * speed;
+
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+
+    for (const w of walls) {
+      const push = circleRectResolve(p, w);
+      if (push) { p.x += push.x; p.y += push.y; }
+    }
+
+    p.x = clamp(p.x, 40 + p.r, world.w - 40 - p.r);
+    p.y = clamp(p.y, 40 + p.r, world.h - 40 - p.r);
+
+    for (const wid of ['pistol','rifle']) {
+      if (p.guns[wid]) {
+        const def = weapons[wid];
+        p.guns[wid].recoil = Math.max(0, p.guns[wid].recoil - dt * def.recoilDecayPerSec);
+      }
+    }
+
+    if (input.keys.has('KeyR')) startReload(p);
+
+    const g = getGunAndDef(p);
+    if (g && g.gs.mag === 0 && g.gs.reserve > 0 && !g.gs.reloading) startReload(p);
+
+    if (input.mouseDown && !state.buyOpen) {
+      if (p.weapon !== 'knife' && canGunShoot(p)) {
+        const gun = getGunAndDef(p);
+        const def = gun.def;
+        const gs = gun.gs;
+
+        const spread = computeGunSpread(p, def, walk, p.crouch, canSprint);
+        state.lastComputedPlayerSpread = spread;
+
+        gs.mag -= 1;
+        gs.lastShotAt = nowSec();
+        gs.recoil = clamp(gs.recoil + def.recoilPerShot, 0, 12);
+
+        raycastWeapon(p, aimWX, aimWY, def, { spreadRad: spread, tracer: true, impact: true, impactKind: 'bullet' });
+        registerSound(p.x, p.y, canSprint ? 820 : 760, 0.7);
+      }
+    } else {
+      if (p.weapon !== 'knife') {
+        const gun = getGunAndDef(p);
+        if (gun) {
+          const target = computeGunSpread(p, gun.def, walk, p.crouch, canSprint);
+          state.lastComputedPlayerSpread = lerp(state.lastComputedPlayerSpread, target, 0.06);
+        }
+      }
+    }
+
+    emitFootsteps(p, { sprinting: canSprint });
+  }
+
+  // ===== Bot AI =====
+  function isInFire(x, y) {
+    const t = nowSec();
+    for (const f of state.fires) {
+      if (t >= f.tEnd) continue;
+      if (dist2(x, y, f.x, f.y) <= (f.r + 6) * (f.r + 6)) return true;
+    }
+    return false;
+  }
+
+  function fireAvoidVector(x, y) {
+    const t = nowSec();
+    let best = null;
+    for (const f of state.fires) {
+      if (t >= f.tEnd) continue;
+      const d2 = dist2(x, y, f.x, f.y);
+      const r2 = (f.r + 48) * (f.r + 48);
+      if (d2 > r2) continue;
+      if (!best || d2 < best.d2) best = { f, d2 };
+    }
+    if (!best) return { x: 0, y: 0, w: 0 };
+
+    const d = Math.sqrt(best.d2) || 1;
+    const away = { x: (x - best.f.x) / d, y: (y - best.f.y) / d };
+    const w = clamp(1 - d / (best.f.r + 48), 0, 1);
+    return { x: away.x, y: away.y, w };
+  }
+
+  function pickWaypoint(bot, targetX, targetY) {
+    if (hasWallLOS(bot.x, bot.y, targetX, targetY)) return { x: targetX, y: targetY, ok: true };
+
+    const radius = 150;
+    const tries = 12;
+    let best = null;
+
+    for (let i = 0; i < tries; i++) {
+      const ang = i * (Math.PI * 2 / tries);
+      let cx = bot.x + Math.cos(ang) * radius;
+      let cy = bot.y + Math.sin(ang) * radius;
+
+      cx = clamp(cx, 60, world.w - 60);
+      cy = clamp(cy, 60, world.h - 60);
+
+      let inside = false;
+      for (const w of walls) { if (pointInRect(cx, cy, w)) { inside = true; break; } }
+      if (inside) continue;
+
+      if (!hasWallLOS(bot.x, bot.y, cx, cy)) continue;
+
+      const score = dist2(cx, cy, targetX, targetY);
+      if (!best || score < best.score) best = { x: cx, y: cy, score };
+    }
+
+    if (best) return { x: best.x, y: best.y, ok: true };
+    return { x: bot.x, y: bot.y, ok: false };
+  }
+
+  function botFindVisibleEnemy(bot) {
+    const t = nowSec();
+    const actors = getAllActors();
+    let best = null;
+
+    for (const a of actors) {
+      if (!a || !a.alive) continue;
+      if (a === bot) continue;
+      if (a.team === bot.team) continue;
+      if (t < bot.blindUntil) continue;
+
+      if (!isWorldPointOnPlayerScreen(a.x, a.y, 60) && !isWorldPointOnPlayerScreen(bot.x, bot.y, 60)) continue;
+      if (!hasLineOfSight(bot.x, bot.y, a.x, a.y)) continue;
+
+      const d2 = dist2(bot.x, bot.y, a.x, a.y);
+      if (!best || d2 < best.d2) best = { a, d2 };
+    }
+
+    return best ? best.a : null;
+  }
+
+  function updateBot(bot, dt) {
+    if (!bot.alive) return;
+    if (isFrozen()) { bot.vx = 0; bot.vy = 0; return; }
+
+    finishReload(bot);
+
+    const p = state.player;
+    const t = nowSec();
+    const diff = botParams[state.botDifficulty];
+
+    const enemy = botFindVisibleEnemy(bot);
+    const seesEnemy = !!enemy;
+
+    if (!seesEnemy && bot.team === 'CT') {
+      const followDist = 160;
+      const offX = (bot.labelId === 1) ? 0.65 : 0.85;
+      const offY = (bot.labelId === 1) ? -0.7 : 0.7;
+      bot.targetX = p.x + followDist * offX;
+      bot.targetY = p.y + followDist * offY;
+    }
+
+    if (seesEnemy) {
+      bot.lastSeenX = enemy.x;
+      bot.lastSeenY = enemy.y;
+      bot.lastSeenAt = t;
+      bot.aimAngle = Math.atan2(enemy.y - bot.y, enemy.x - bot.x);
+    }
+
+    const bomb = state.bomb;
+    const hasBomb = bomb && !bomb.planted && !bomb.defused && bomb.carrierUid === bot.uid && bot.team === 'T';
+
+    if (hasBomb && !state.roundOver) {
+      const site = chooseNearestSite(bot.x, bot.y);
+      const inside = pointInRect(bot.x, bot.y, site);
+
+      if (bot.planting) {
+        if (isInFire(bot.x, bot.y)) { bot.planting = false; bot.plantEndsAt = 0; }
+        else {
+          bot.vx = 0; bot.vy = 0;
+          if (t >= bot.plantEndsAt) {
+            bot.planting = false;
+
+            bomb.planted = true;
+            bomb.dropped = false;
+            bomb.carrierUid = null;
+            bomb.x = bot.x;
+            bomb.y = bot.y;
+            bomb.siteName = site.name;
+
+            bomb.plantedAt = t;
+            bomb.explodeAt = t + 40.0;
+
+            showBanner('BOMB PLANTED', `Site ${site.name}. Defuse!`, 1.35);
+          }
+        }
+      } else {
+        if (inside && !seesEnemy && !isInFire(bot.x, bot.y)) {
+          bot.planting = true;
+          bot.plantEndsAt = t + 3.0;
+          bomb.plantStartedAt = t;
+          bomb.plantEndsAt = bot.plantEndsAt;
+        }
+      }
+    }
+
+    if (bot.planting) return;
+
+    if (t >= bot.thinkAt) {
+      bot.thinkAt = t + rand(0.25, 0.55);
+
+      if (seesEnemy) {
+        bot.reactionAt = t + rand(diff.reactMin, diff.reactMax);
+        if (chance(0.10) && state.botDifficulty !== 2) bot.reactionAt += rand(0.20, 0.45);
+      } else {
+        let bestSound = null;
+        for (const s of state.sounds) {
+          const d2 = dist2(bot.x, bot.y, s.x, s.y);
+          if (d2 <= s.r * s.r) {
+            if (!bestSound || d2 < bestSound.d2) bestSound = { s, d2 };
+          }
+        }
+
+        if (bestSound && t < bot.blindUntil) {
+          bot.targetX = bot.x; bot.targetY = bot.y;
+        } else if (bestSound && bot.team === 'T') {
+          bot.investigateX = bestSound.s.x;
+          bot.investigateY = bestSound.s.y;
+          bot.investigateUntil = t + 2.8;
+          bot.targetX = bot.investigateX;
+          bot.targetY = bot.investigateY;
+        } else if ((t - bot.lastSeenAt) <= 3.2 && bot.team === 'T') {
+          bot.targetX = bot.lastSeenX;
+          bot.targetY = bot.lastSeenY;
+        } else if (hasBomb && bomb && !bomb.planted) {
+          const site = chooseNearestSite(bot.x, bot.y);
+          bot.targetX = site.x + site.w / 2;
+          bot.targetY = site.y + site.h / 2;
+        } else if (bot.team === 'T') {
+          const minX = world.w * 0.55, maxX = world.w - 120;
+          const minY = 120, maxY = world.h - 120;
+          bot.targetX = lerp(minX, maxX, Math.random());
+          bot.targetY = lerp(minY, maxY, Math.random());
+        }
+      }
+    }
+
+    let tx = bot.targetX, ty = bot.targetY;
+    const usingInvestigate = (t <= bot.investigateUntil && !seesEnemy);
+    if (usingInvestigate) { tx = bot.investigateX; ty = bot.investigateY; }
+
+    if (seesEnemy) {
+      const desired = 420;
+      const d = Math.hypot(enemy.x - bot.x, enemy.y - bot.y);
+      const away = norm(bot.x - enemy.x, bot.y - enemy.y);
+      const to = norm(enemy.x - bot.x, enemy.y - bot.y);
+
+      if (d < desired * 0.85) { tx = bot.x + away.x * 220; ty = bot.y + away.y * 220; }
+      else if (d > desired * 1.15) { tx = bot.x + to.x * 220; ty = bot.y + to.y * 220; }
+      else {
+        const side = { x: -to.y, y: to.x };
+        tx = bot.x + side.x * lerp(-160, 160, Math.random());
+        ty = bot.y + side.y * lerp(-160, 160, Math.random());
+      }
+    }
+
+    const av = fireAvoidVector(bot.x, bot.y);
+    if (av.w > 0) { tx = bot.x + av.x * lerp(220, 360, av.w); ty = bot.y + av.y * lerp(220, 360, av.w); }
+
+    let moveX = tx, moveY = ty;
+    const needWp = !hasWallLOS(bot.x, bot.y, tx, ty);
+
+    if (needWp) {
+      const wpReached = dist2(bot.x, bot.y, bot.waypointX, bot.waypointY) <= (18 * 18);
+      const wpExpired = t >= bot.waypointUntil;
+      if (wpReached || wpExpired || isInFire(bot.waypointX, bot.waypointY)) {
+        const wp = pickWaypoint(bot, tx, ty);
+        bot.waypointX = wp.x;
+        bot.waypointY = wp.y;
+        bot.waypointUntil = t + 0.55;
+      }
+      moveX = bot.waypointX;
+      moveY = bot.waypointY;
+    } else {
+      bot.waypointX = tx;
+      bot.waypointY = ty;
+      bot.waypointUntil = t + 0.20;
+    }
+
+    const toMove = { x: moveX - bot.x, y: moveY - bot.y };
+    const moveDist = Math.hypot(toMove.x, toMove.y);
+
+    const blinded = t < bot.blindUntil;
+    let botSpeed = blinded ? 120 : (seesEnemy ? 190 : 210);
+    if (av.w > 0) botSpeed = Math.max(botSpeed, 235);
+
+    if (moveDist < 8) {
+      bot.vx = 0; bot.vy = 0;
+    } else {
+      const dir = norm(toMove.x, toMove.y);
+      bot.vx = dir.x * botSpeed;
+      bot.vy = dir.y * botSpeed;
+      if (blinded) { bot.vx += rand(-25, 25); bot.vy += rand(-25, 25); }
+    }
+
+    bot.x += bot.vx * dt;
+    bot.y += bot.vy * dt;
+
+    for (const w of walls) {
+      const push = circleRectResolve(bot, w);
+      if (push) { bot.x += push.x; bot.y += push.y; }
+    }
+
+    bot.x = clamp(bot.x, 40 + bot.r, world.w - 40 - bot.r);
+    bot.y = clamp(bot.y, 40 + bot.r, world.h - 40 - bot.r);
+
+    if (seesEnemy && enemy.alive) bot.aimAngle = Math.atan2(enemy.y - bot.y, enemy.x - bot.x);
+    else if (bot.team === 'CT') bot.aimAngle = Math.atan2(p.y - bot.y, p.x - bot.x);
+
+    if (seesEnemy && enemy.alive) {
+      const defW = weapons.pistol;
+      const gs = bot.guns.pistol;
+
+      if (gs.mag === 0 && gs.reserve > 0 && !gs.reloading) {
+        gs.reloading = true;
+        gs.reloadEndsAt = nowSec() + defW.reloadTime;
+        bot.nextShotAt = Math.max(bot.nextShotAt, t + rand(0.15, 0.35));
+      }
+
+      const canShootBase = (!gs.reloading && gs.mag > 0 && (t - gs.lastShotAt) >= (1 / defW.fireRate));
+      const canShoot = canShootBase && (t >= bot.nextShotAt);
+
+      if (t >= bot.reactionAt && canShoot) {
+        const dist = Math.hypot(enemy.x - bot.x, enemy.y - bot.y);
+        let spread = diff.spreadBase + clamp(dist / 900, 0, 1) * diff.spreadDistAdd;
+
+        const biasActive = t < bot.missBiasUntil;
+        const blindPenalty = (t < bot.blindUntil) ? 0.30 : 0.0;
+        if (t >= bot.missBiasUntil && chance(0.12)) bot.missBiasUntil = t + rand(0.30, 0.90);
+
+        const missChance = (biasActive ? (diff.baseMiss + 0.12) : diff.baseMiss) + blindPenalty + (av.w > 0 ? 0.12 : 0);
+        const willMiss = chance(clamp(missChance, 0, 0.90));
+
+        let aimX = enemy.x;
+        let aimY = enemy.y;
+
+        const to = norm(enemy.x - bot.x, enemy.y - bot.y);
+        const side = { x: -to.y, y: to.x };
+
+        if (willMiss) {
+          const sideOffset = rand(140, 320) * (chance(0.5) ? -1 : 1);
+          const forwardOffset = rand(-70, 110);
+          aimX = enemy.x + side.x * sideOffset + to.x * forwardOffset;
+          aimY = enemy.y + side.y * sideOffset + to.y * forwardOffset;
+          spread += rand(0.016, 0.040) + blindPenalty * 0.05;
+        } else if (biasActive) {
+          const sideOffset = rand(25, 70) * (chance(0.5) ? -1 : 1);
+          aimX = enemy.x + side.x * sideOffset;
+          aimY = enemy.y + side.y * sideOffset;
+          spread += rand(0.004, 0.012) + blindPenalty * 0.02;
+        }
+
+        gs.mag -= 1;
+        gs.lastShotAt = t;
+
+        raycastWeapon(bot, aimX, aimY, defW, { spreadRad: spread, tracer: true, impact: true, impactKind: 'bullet' });
+        bot.nextShotAt = t + rand(diff.fireDelayMin, diff.fireDelayMax) + (willMiss ? rand(0.05, 0.18) : 0);
+        registerSound(bot.x, bot.y, 720, 0.55);
+      }
+    }
+
+    emitFootsteps(bot, { sprinting: false });
+  }
+
+  function updateSounds() {
+    const t = nowSec();
+    state.sounds = state.sounds.filter(s => s.tEnd > t);
+  }
+
+  function cleanupFx() {
+    const t = nowSec();
+    state.tracers = state.tracers.filter(o => o.tEnd > t);
+    state.impacts = state.impacts.filter(o => o.tEnd > t);
+    state.killFeed = state.killFeed.filter(o => o.tEnd > t);
+    state.floaters = state.floaters.filter(o => o.tEnd > t);
+    state.smokes = state.smokes.filter(o => o.tEnd > t);
+    state.flashes = state.flashes.filter(o => o.tEnd > t);
+    state.hes = state.hes.filter(o => o.tEnd > t);
+    state.drops = state.drops.filter(o => o.tEnd > t);
+    state.pings = state.pings.filter(o => o.tEnd > t);
+  }
+
+  function updateFloaters(dt) {
+    for (const f of state.floaters) {
+      f.x += f.vx * dt;
+      f.y += f.vy * dt;
+      f.vy += 22 * dt;
+    }
+  }
+
+  function checkRoundEnd() {
+    if (state.roundOver) return;
+    const bomb = state.bomb;
+
+    if (nowSec() >= state.roundEndsAt && bomb && !bomb.planted && !bomb.defused) { setRoundOver('CT WIN', 'Time over.', true); return; }
+    if (ctAliveCount() === 0) { setRoundOver('T WIN', 'CT eliminated.', false); return; }
+    if (tAliveCount() === 0 && bomb && !bomb.planted) { setRoundOver('CT WIN', 'T eliminated.', true); return; }
+    if (bomb && bomb.defused) { setRoundOver('CT WIN', 'Bomb defused.', true); return; }
+  }
+
+  // ===== Buy Menu =====
+  function handleBuy(action) {
+    const p = state.player;
+    if (!isFrozen() || state.roundOver || !p.alive) { showBanner('INFO', 'Покупки доступны только во время freeze time.', 0.9); return; }
+
+    function trySpend(cost) {
+      if (profile.money < cost) { showBanner('BUY', 'Недостаточно денег.', 0.9); return false; }
+      profile.money = clampMoney(profile.money - cost);
+      return true;
+    }
+
+    if (action === 'close') { closeBuyMenu(); return; }
+
+    if (action === 'rifle') {
+      if (p.inventory.rifle) { showBanner('BUY', 'Винтовка уже куплена на этот раунд.', 0.9); return; }
+      if (!trySpend(economy.costs.rifle)) return;
+      p.inventory.rifle = true;
+      p.weapon = 'rifle';
+      p.guns.rifle = makeGunState('rifle');
+      showBanner('BUY', 'Куплена винтовка.', 0.9);
+      return;
+    }
+
+    if (action === 'kevlar') {
+      if (p.armor >= 100) { showBanner('BUY', 'Броня уже есть.', 0.9); return; }
+      if (!trySpend(economy.costs.kevlar)) return;
+      p.armor = 100;
+      showBanner('BUY', 'Куплена броня.', 0.9);
+      return;
+    }
+
+    if (action === 'helmet') {
+      if (p.helmet) { showBanner('BUY', 'Шлем уже есть.', 0.9); return; }
+      if (!trySpend(economy.costs.helmet)) return;
+      p.helmet = true;
+      p.armor = Math.max(p.armor, 100);
+      showBanner('BUY', 'Куплен шлем.', 1.0);
+      return;
+    }
+
+    if (action === 'kit') {
+      if (p.hasKit) { showBanner('BUY', 'Defuse kit уже куплен.', 0.9); return; }
+      if (!trySpend(economy.costs.kit)) return;
+      p.hasKit = true;
+      showBanner('BUY', 'Куплен defuse kit (дефьюз быстрее).', 1.0);
+      return;
+    }
+
+    if (action === 'smoke') {
+      if (p.smokes >= 2) { showBanner('BUY', 'Лимит smoke на раунд: 2.', 0.9); return; }
+      if (!trySpend(economy.costs.smoke)) return;
+      p.smokes++;
+      showBanner('BUY', 'Куплен smoke.', 0.9);
+      return;
+    }
+
+    if (action === 'flash') {
+      if (p.flashes >= 2) { showBanner('BUY', 'Лимит flash на раунд: 2.', 0.9); return; }
+      if (!trySpend(economy.costs.flash)) return;
+      p.flashes++;
+      showBanner('BUY', 'Куплена flash.', 0.9);
+      return;
+    }
+
+    if (action === 'he') {
+      if (p.hes >= 1) { showBanner('BUY', 'Лимит HE на раунд: 1.', 0.9); return; }
+      if (!trySpend(economy.costs.he)) return;
+      p.hes++;
+      showBanner('BUY', 'Куплена HE граната.', 0.9);
+      return;
+    }
+
+    if (action === 'molotov') {
+      if (p.molotovs >= 1) { showBanner('BUY', 'Лимит Molotov на раунд: 1.', 0.9); return; }
+      if (!trySpend(economy.costs.molotov)) return;
+      p.molotovs++;
+      showBanner('BUY', 'Куплен Molotov.', 0.9);
+      return;
+    }
+
+    if (action === 'ammo') {
+      if (!trySpend(economy.costs.ammo)) return;
+      if (p.weapon === 'knife') { showBanner('BUY', 'Для ножа патроны не нужны.', 0.9); addMoney(economy.costs.ammo); return; }
+      const gun = getGunAndDef(p);
+      if (!gun) return;
+      gun.gs.reserve = gun.def.reserveMax;
+      showBanner('BUY', 'Патроны пополнены.', 0.9);
+      return;
+    }
+  }
+
+  buyMenu.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const a = btn.getAttribute('data-buy');
+    if (a) handleBuy(a);
+  });
+
+  // ===== Draw (тот же набор что в v0.14 full, но компактнее) =====
+  function drawRadar() {
+    const margin = 14;
+    const size = Math.floor(Math.min(canvas.width, canvas.height) * 0.22);
+    const x0 = canvas.width - margin - size;
+    const y0 = margin;
+
+    ctx.save();
+
+    ctx.fillStyle = 'rgba(8, 12, 18, 0.62)';
+    ctx.fillRect(x0, y0, size, size);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x0 + 1, y0 + 1, size - 2, size - 2);
+
+    const scale = Math.min(size / world.w, size / world.h);
+    const mapW = world.w * scale;
+    const mapH = world.h * scale;
+    const mx = x0 + (size - mapW) / 2;
+    const my = y0 + (size - mapH) / 2;
+
+    function wxToR(wx) { return mx + wx * scale; }
+    function wyToR(wy) { return my + wy * scale; }
+
+    for (const s of sites) {
+      ctx.fillStyle = 'rgba(255, 214, 120, 0.10)';
+      ctx.fillRect(wxToR(s.x), wyToR(s.y), s.w * scale, s.h * scale);
+    }
+
+    ctx.fillStyle = 'rgba(90, 110, 140, 0.33)';
+    for (const w of walls) ctx.fillRect(wxToR(w.x), wyToR(w.y), w.w * scale, w.h * scale);
+
+    const t = nowSec();
+    for (const s of state.smokes) {
+      const r = smokeRadius(s, t) * scale;
+      ctx.fillStyle = 'rgba(210,220,235,0.10)';
+      ctx.beginPath();
+      ctx.arc(wxToR(s.x), wyToR(s.y), r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    for (const f of state.fires) {
+      ctx.fillStyle = 'rgba(255,155,90,0.10)';
+      ctx.beginPath();
+      ctx.arc(wxToR(f.x), wyToR(f.y), f.r * scale, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    for (const pg of state.pings) {
+      const a = clamp((pg.tEnd - t) / 3.0, 0, 1);
+      ctx.strokeStyle = `rgba(160,220,255,${0.20 + 0.40 * a})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(wxToR(pg.x), wyToR(pg.y), 10 * scale + 4, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    for (const a of getAllActors()) {
+      if (!a.alive) continue;
+      ctx.fillStyle = (a.team === 'CT') ? 'rgba(120,190,255,0.95)' : 'rgba(255,120,90,0.92)';
+      ctx.beginPath();
+      ctx.arc(wxToR(a.x), wyToR(a.y), Math.max(2.0, 4.8 * scale), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const bomb = state.bomb;
+    if (bomb && (bomb.planted || bomb.dropped)) {
+      ctx.fillStyle = bomb.planted ? 'rgba(255, 80, 80, 0.95)' : 'rgba(255, 200, 120, 0.95)';
+      ctx.beginPath();
+      ctx.arc(wxToR(bomb.x), wyToR(bomb.y), Math.max(2.2, 5.2 * scale), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillText('RADAR', x0 + 10, y0 + 18);
+
+    ctx.restore();
+  }
+
+  function drawKillFeed() {
+    const x = canvas.width - 16;
+    let y = 16 + 18 + Math.floor(Math.min(canvas.width, canvas.height) * 0.22);
+    y += 10;
+
+    ctx.save();
+    ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+
+    const items = state.killFeed.slice().reverse();
+    for (const it of items) {
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      const w = ctx.measureText(it.text).width;
+      ctx.fillRect(x - w - 12, y - 12, w + 12, 18);
+
+      ctx.fillStyle = it.color || 'rgba(235,245,255,0.85)';
+      ctx.fillText(it.text, x - w - 6, y);
+      y += 20;
+    }
+    ctx.restore();
+  }
+
+  function drawHitMarker() {
+    if (nowSec() > state.hitMarkerUntil) return;
+
+    const cx = input.mouseX;
+    const cy = input.mouseY;
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(235,245,255,0.85)';
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, cy - 10);
+    ctx.lineTo(cx - 4, cy - 4);
+    ctx.moveTo(cx + 10, cy - 10);
+    ctx.lineTo(cx + 4, cy - 4);
+    ctx.moveTo(cx - 10, cy + 10);
+    ctx.lineTo(cx - 4, cy + 4);
+    ctx.moveTo(cx + 10, cy + 10);
+    ctx.lineTo(cx + 4, cy + 4);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawFlashBlindOverlay() {
+    const t = nowSec();
+    if (t >= state.playerBlindUntil) return;
+
+    const dur = Math.max(0.0001, state.playerBlindDuration || 1);
+    const age = t - state.playerBlindStart;
+    const x = clamp(age / dur, 0, 1);
+
+    const rise = clamp(x / 0.08, 0, 1);
+    const fall = clamp((1 - x) / 0.92, 0, 1);
+    const a = state.playerBlindPeak * (0.15 + 0.85 * Math.min(1, rise)) * (0.20 + 0.80 * fall);
+
+    ctx.save();
+    ctx.fillStyle = `rgba(255,255,255,${clamp(a, 0, 0.92)})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+  }
+
+  function drawScoreboard() {
+    if (!input.keys.has('Tab')) return;
+
+    const w = Math.min(760, canvas.width * 0.80);
+    const h = Math.min(410, canvas.height * 0.66);
+    const x = (canvas.width - w) / 2;
+    const y = (canvas.height - h) / 2;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(x, y, w, h);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+
+    ctx.fillStyle = 'rgba(235,245,255,0.9)';
+    ctx.font = '16px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillText(`SCOREBOARD | BOT: ${botDiffNames[state.botDifficulty]}`, x + 16, y + 26);
+
+    ctx.font = '13px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillStyle = 'rgba(235,245,255,0.7)';
+    ctx.fillText('Name', x + 16, y + 54);
+    ctx.fillText('Team', x + 190, y + 54);
+    ctx.fillText('HP', x + w - 250, y + 54);
+    ctx.fillText('Armor', x + w - 200, y + 54);
+    ctx.fillText('Helmet', x + w - 140, y + 54);
+    ctx.fillText('Alive', x + w - 80, y + 54);
+
+    function row(yy, a, color) {
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(x + 12, yy - 14, w - 24, 22);
+
+      ctx.fillStyle = color;
+      ctx.fillText(actorLabel(a), x + 16, yy);
+
+      ctx.fillStyle = 'rgba(235,245,255,0.85)';
+      ctx.fillText(a.team, x + 190, yy);
+      ctx.fillText(String(Math.round(a.health)), x + w - 250, yy);
+      ctx.fillText(String(Math.round(a.armor || 0)), x + w - 200, yy);
+      ctx.fillText(a.helmet ? 'YES' : 'NO', x + w - 140, yy);
+      ctx.fillText(a.alive ? 'YES' : 'NO', x + w - 80, yy);
+    }
+
+    let yy = y + 80;
+    row(yy, state.player, 'rgba(120,190,255,0.95)');
+    yy += 28;
+
+    for (const b of state.bots.filter(b => b.team === 'CT')) { row(yy, b, 'rgba(120,190,255,0.95)'); yy += 28; }
+    yy += 8;
+    for (const b of state.bots.filter(b => b.team === 'T')) { row(yy, b, 'rgba(255,120,90,0.95)'); yy += 28; }
+
+    ctx.fillStyle = 'rgba(235,245,255,0.55)';
+    ctx.fillText(`Money: $${profile.money} | K: ${profile.totalKills} D: ${profile.totalDeaths}`, x + 16, y + h - 18);
+
+    ctx.restore();
+  }
+
+  function drawWorldFx() {
+    const t = nowSec();
+
+    for (const s of state.smokes) {
+      const r = smokeRadius(s, t);
+      const sx = worldToScreenX(s.x);
+      const sy = worldToScreenY(s.y);
+      const alpha = clamp((s.tEnd - t) / 12.0, 0, 1);
+      const baseA = 0.10 + 0.16 * alpha;
+      ctx.save();
+      ctx.fillStyle = `rgba(210,220,235,${baseA})`;
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    for (const f of state.fires) {
+      const sx = worldToScreenX(f.x);
+      const sy = worldToScreenY(f.y);
+      const life01 = clamp((f.tEnd - t) / 7.0, 0, 1);
+      const a = 0.08 + 0.18 * life01;
+      ctx.save();
+      ctx.fillStyle = `rgba(255,155,90,${a})`;
+      ctx.beginPath();
+      ctx.arc(sx, sy, f.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    for (const d of state.drops) {
+      const sx = worldToScreenX(d.x);
+      const sy = worldToScreenY(d.y);
+      const a = clamp((d.tEnd - t) / 25.0, 0, 1);
+      ctx.save();
+      ctx.fillStyle = `rgba(0,0,0,${0.20 + 0.25 * a})`;
+      ctx.fillRect(sx - 10, sy - 6, 20, 12);
+      ctx.fillStyle = (d.weaponId === 'rifle') ? `rgba(120,190,255,${0.40 + 0.45 * a})` : `rgba(255,200,120,${0.40 + 0.45 * a})`;
+      ctx.fillRect(sx - 9, sy - 5, 18, 10);
+      ctx.restore();
+    }
+
+    for (const pg of state.pings) {
+      const a = clamp((pg.tEnd - t) / 3.0, 0, 1);
+      const sx = worldToScreenX(pg.x);
+      const sy = worldToScreenY(pg.y);
+      ctx.save();
+      ctx.strokeStyle = `rgba(160,220,255,${0.20 + 0.55 * a})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 22 - 10 * (1 - a), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    ctx.lineWidth = 2;
+    for (const tr of state.tracers) {
+      const alpha = clamp((tr.tEnd - t) / 0.06, 0, 1);
+      if (alpha <= 0) continue;
+      ctx.strokeStyle = tr.color.replace('0.8', String(0.15 + 0.65 * alpha));
+      ctx.beginPath();
+      ctx.moveTo(worldToScreenX(tr.x1), worldToScreenY(tr.y1));
+      ctx.lineTo(worldToScreenX(tr.x2), worldToScreenY(tr.y2));
+      ctx.stroke();
+    }
+
+    for (const im of state.impacts) {
+      const alpha = clamp((im.tEnd - t) / 0.22, 0, 1);
+      if (alpha <= 0) continue;
+      const sx = worldToScreenX(im.x);
+      const sy = worldToScreenY(im.y);
+      if (im.kind === 'fireburst') {
+        ctx.fillStyle = `rgba(255,155,90,${0.08 + 0.22 * alpha})`;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 28 * (1 - alpha) + 10, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (im.kind === 'explosion') {
+        ctx.fillStyle = `rgba(255,190,120,${0.08 + 0.22 * alpha})`;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 36 * (1 - alpha) + 10, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = `rgba(255,230,160,${0.12 + 0.25 * alpha})`;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 7 * (1 - alpha) + 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function draw() {
+    ctx.fillStyle = '#0b0f14';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const floorGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    floorGrad.addColorStop(0, '#121a24');
+    floorGrad.addColorStop(1, '#0b0f14');
+    ctx.fillStyle = floorGrad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // sites
+    for (const s of sites) {
+      const sx = worldToScreenX(s.x);
+      const sy = worldToScreenY(s.y);
+      ctx.fillStyle = 'rgba(255, 214, 120, 0.07)';
+      ctx.fillRect(sx, sy, s.w, s.h);
+      ctx.strokeStyle = 'rgba(255, 214, 120, 0.18)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx + 1, sy + 1, s.w - 2, s.h - 2);
+      ctx.fillStyle = 'rgba(255, 214, 120, 0.55)';
+      ctx.font = '16px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+      ctx.fillText(`SITE ${s.name}`, sx + 10, sy + 22);
+    }
+
+    // walls
+    ctx.fillStyle = '#263242';
+    for (const w of walls) {
+      const sx = worldToScreenX(w.x);
+      const sy = worldToScreenY(w.y);
+      ctx.fillRect(sx, sy, w.w, w.h);
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx + 1, sy + 1, w.w - 2, w.h - 2);
+    }
+
+    drawWorldFx();
+
+    function drawActor(a) {
+      if (!a.alive) return;
+      const sx = worldToScreenX(a.x);
+      const sy = worldToScreenY(a.y);
+
+      ctx.fillStyle = (a.team === 'CT') ? '#4aa3ff' : '#ff6b4a';
+      ctx.beginPath();
+      ctx.arc(sx, sy, a.r, 0, Math.PI * 2);
+      ctx.fill();
+
+      const hp = clamp(a.health / 100, 0, 1);
+      const barW = 34, barH = 5;
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      ctx.fillRect(sx - barW/2, sy - a.r - 14, barW, barH);
+      ctx.fillStyle = `rgba(${Math.floor(lerp(220, 60, hp))}, ${Math.floor(lerp(70, 210, hp))}, 90, 0.9)`;
+      ctx.fillRect(sx - barW/2, sy - a.r - 14, barW * hp, barH);
+
+      if (a !== state.player) {
+        ctx.fillStyle = (a.team === 'CT') ? 'rgba(120,190,255,0.85)' : 'rgba(255,120,90,0.85)';
+        ctx.font = '12px system-ui';
+        const label = actorLabel(a);
+        ctx.fillText(label, sx - ctx.measureText(label).width / 2, sy - a.r - 18);
+      }
+    }
+
+    drawActor(state.player);
+    for (const b of state.bots) drawActor(b);
+
+    const bomb = state.bomb;
+    if (bomb && (bomb.dropped || bomb.planted)) {
+      const bx = worldToScreenX(bomb.x);
+      const by = worldToScreenY(bomb.y);
+      ctx.fillStyle = bomb.planted ? 'rgba(255,120,120,0.95)' : 'rgba(255,200,120,0.95)';
+      ctx.fillRect(bx - 6, by - 6, 12, 12);
+    }
+
+    // crosshair
+    const cx = input.mouseX;
+    const cy = input.mouseY;
+
+    const p = state.player;
+    let gap = 6;
+    if (p.weapon === 'knife') gap = 5;
+    else {
+      const spread = clamp(state.lastComputedPlayerSpread || 0.012, 0.008, 0.14);
+      gap = clamp(6 + spread * 720, 6, 46);
+    }
+
+    const arm = 8;
+    ctx.strokeStyle = 'rgba(225,245,255,0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - (gap + arm), cy); ctx.lineTo(cx - gap, cy);
+    ctx.moveTo(cx + gap, cy);  ctx.lineTo(cx + (gap + arm), cy);
+    ctx.moveTo(cx, cy - (gap + arm)); ctx.lineTo(cx, cy - gap);
+    ctx.moveTo(cx, cy + gap);  ctx.lineTo(cx, cy + (gap + arm));
+    ctx.stroke();
+
+    drawHitMarker();
+    drawRadar();
+    drawKillFeed();
+    drawScoreboard();
+    drawFlashBlindOverlay();
+  }
+
+  function updateHud() {
+    const p = state.player;
+
+    const freezeLeft = state.freezeEndsAt - nowSec();
+    const roundLeft = state.roundEndsAt - nowSec();
+    const timeLine = (freezeLeft > 0) ? `Freeze: ${freezeLeft.toFixed(1)}s` : `Round time: ${fmtTime(roundLeft)}`;
+
+    const bomb = state.bomb;
+    let bombLine = 'Bomb: none';
+    let defuseLine = '';
+
+    if (bomb) {
+      if (bomb.planted && !bomb.defused) {
+        bombLine = `Bomb: PLANTED (site ${bomb.siteName || '?'}) | Explodes in ${fmtTime(bomb.explodeAt - nowSec())}`;
+
+        if (bomb.defuseStartedAt) {
+          const total = Math.max(0.001, (bomb.defuseEndsAt - bomb.defuseStartedAt));
+          const done = clamp((nowSec() - bomb.defuseStartedAt) / total, 0, 1);
+          defuseLine = ` | Defuse: ${(done * 100).toFixed(0)}%`;
+        }
+      } else if (bomb.dropped) bombLine = 'Bomb: DROPPED';
+      else if (bomb.carrierUid != null) bombLine = 'Bomb: carried by T';
+    }
+
+    let ammoText = '-';
+    if (p.weapon === 'knife') ammoText = 'Knife';
+    else {
+      const gun = getGunAndDef(p);
+      if (gun) ammoText = gun.gs.reloading ? `Reloading... (${Math.max(0, gun.gs.reloadEndsAt - nowSec()).toFixed(1)}s)` : `${gun.gs.mag}/${gun.gs.reserve}`;
+    }
+
+    let prompt = '';
+    const pickup = nearestDropToPlayer();
+    if (pickup && !isFrozen() && p.alive) prompt = `Press E to pick up ${pickup.weaponId.toUpperCase()}`;
+
+    if (bomb && bomb.planted && !bomb.defused && p.alive && !isFrozen()) {
+      const near = dist2(p.x, p.y, bomb.x, bomb.y) <= (38 * 38);
+      if (near) prompt = p.hasKit ? 'Hold E to defuse (Kit)' : 'Hold E to defuse';
+    }
+
+    const walk = input.keys.has('ShiftLeft') || input.keys.has('ShiftRight');
+    const wantSprint = input.keys.has('AltLeft') || input.keys.has('AltRight');
+    const moveState = p.crouch ? 'CROUCH' : (wantSprint && !walk ? 'SPRINT' : (walk ? 'WALK' : 'RUN'));
+
+    hudTop.textContent = `Round: ${state.round} | ${timeLine} | CT: ${ctAliveCount()} vs T: ${tAliveCount()} | $${profile.money} | Bot: ${botDiffNames[state.botDifficulty]}`;
+    hudMid.textContent = `HP: ${Math.round(p.health)} | Armor: ${Math.round(p.armor)} | Helmet: ${p.helmet ? 'YES' : 'NO'} | Stamina: ${Math.round(p.stamina)}% | Kit: ${p.hasKit ? 'YES' : 'NO'} | Smoke: ${p.smokes} | Flash: ${p.flashes} | HE: ${p.hes} | Molotov: ${p.molotovs} | Weapon: ${weapons[p.weapon].name} | Move: ${moveState}`;
+    hudBot.textContent = `${bombLine}${defuseLine}${prompt ? ' | ' + prompt : ''} | Ammo: ${ammoText} | K: ${profile.totalKills} D: ${profile.totalDeaths}`;
+  }
+
+  // ===== Hotkeys (edge-based) =====
+  function handleHotkeys() {
+    if (input.pressed.has('KeyB')) toggleBuyMenu();
+
+    if (input.pressed.has('KeyG')) tryThrowSmoke();
+    if (input.pressed.has('KeyF')) tryThrowFlash();
+    if (input.pressed.has('KeyH')) tryThrowHE();
+    if (input.pressed.has('KeyM')) tryThrowMolotov();
+
+    if (input.pressed.has('KeyE')) tryPickupDrop();
+
+    if (input.pressed.has('KeyN')) {
+      state.botDifficulty = (state.botDifficulty + 1) % 3;
+      showBanner('BOT DIFFICULTY', botDiffNames[state.botDifficulty], 0.9);
+    }
+
+    if (input.pressed.has('KeyP')) placePing();
+    if (input.pressed.has('KeyQ')) dropCurrentWeaponPlayer();
+  }
+
+  // ===== Main loop =====
+  spawnRound();
+
+  let lastT = performance.now() / 1000;
+  function tick() {
+    const t = performance.now() / 1000;
+    let dt = t - lastT;
+    lastT = t;
+    dt = clamp(dt, 0, 1/30);
+
+    handleHotkeys();
+
+    if (!state.roundOver) {
+      updateSounds();
+      updateFlashes();
+      updateHEs();
+      updateMolotovs();
+      updateFires();
+
+      updateBombLogic();
+      updateBombBeepSound();
+      updateDefuseLogic();
+
+      updatePlayer(dt);
+      for (const b of state.bots) updateBot(b, dt);
+
+      checkRoundEnd();
+    } else {
+      if (nowSec() >= state.roundRestartAt) { state.round += 1; spawnRound(); }
+    }
+
+    updateFloaters(dt);
+    updateCamera(dt);
+    cleanupFx();
+    updateHud();
+    draw();
+
+    input.pressed.clear();
+    requestAnimationFrame(tick);
+  }
+
+  input.mouseX = canvas.width / 2;
+  input.mouseY = canvas.height / 2;
+  tick();
+})();
+</script>
+</body>
+</html>
